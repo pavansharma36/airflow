@@ -1152,12 +1152,14 @@ class DagFileProcessorManager(LoggingMixin):
             # Find file paths that were recently processed to exclude them
             # from being added to file_path_queue
             # unless they were modified recently and parsing mode is "modified_time"
+            # or files which have callbacks queued
             # in which case we don't honor "self._file_process_interval" (min_file_process_interval)
             last_finish_time = self.get_last_finish_time(file_path)
             if (
                 last_finish_time is not None
                 and (now - last_finish_time).total_seconds() < self._file_process_interval
                 and not (is_mtime_mode and file_modified_time and (file_modified_time > last_finish_time))
+                and file_path not in self._callback_to_execute
             ):
                 file_paths_recently_processed.append(file_path)
 
