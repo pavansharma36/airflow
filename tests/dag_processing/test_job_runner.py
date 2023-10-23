@@ -573,6 +573,67 @@ class TestDagProcessorJobRunner:
                 > (freezed_base_time - manager.processor.get_last_finish_time("file_1.py")).total_seconds()
             )
 
+
+    @conf_vars({("scheduler", "file_parsing_sort_mode"): "modified_time",
+                ("scheduler", "min_file_process_interval"): "120"})
+    @mock.patch("airflow.settings.TIMEZONE", timezone.utc)
+    @mock.patch("zipfile.is_zipfile", return_value=True)
+    @mock.patch("airflow.utils.file.might_contain_dag", return_value=True)
+    @mock.patch("airflow.utils.file.find_path_from_directory", return_value=True)
+    @mock.patch("airflow.utils.file.os.path.isfile", return_value=True)
+    @mock.patch("airflow.utils.file.os.path.getmtime")
+    def test_non_modified_file_parsed_when_callback(self,
+        mock_getmtime,
+        mock_isfile,
+        mock_find_path,
+        mock_might_contain_dag,
+        mock_zipfile,
+        change_platform_timezone,):
+        """Check that new file is added to parsing queue"""
+        dag_files = ["file_1.py", "file_2.py", "file_3.py"]
+
+        now_datetime = timezone.utcnow() - timedelta(seconds=60)
+        now_timestamp = now_datetime.timestamp()
+        mock_getmtime.side_effect = [now_timestamp + 10, now_timestamp + 20, now_timestamp + 30]
+        mock_find_path.return_value = dag_files
+
+        manager = DagProcessorJobRunner(
+            job=Job(),
+            processor=DagFileProcessorManager(
+                dag_directory="directory",
+                max_runs=1,
+                processor_timeout=timedelta(days=365),
+                signal_conn=MagicMock(),
+                dag_ids=[],
+                pickle_dags=False,
+                async_mode=True,
+            ),
+        )
+
+        file1_stat = DagFileStat(
+            num_dags=1,
+            import_errors=0,
+            last_finish_time=now_datetime + timedelta(seconds=20),
+            run_count=0,
+            last_duration=0
+        )
+        manager.processor._file_stats['file_1.py'] = file1_stat
+
+        file2_stat = DagFileStat(
+            num_dags=1,
+            import_errors=0,
+            last_finish_time=now_datetime + timedelta(seconds=30),
+            run_count=0,
+            last_duration=0
+        )
+        manager.processor._file_stats['file_2.py'] = file2_stat
+        manager.processor._callback_to_execute['file_2.py'].append(CallbackRequest('file_2.py'))
+
+        manager.processor.set_file_paths(dag_files)
+        manager.processor.prepare_file_path_queue()
+        assert manager.processor._file_path_queue == deque(["file_3.py", "file_2.py"])
+
+
     def test_scan_stale_dags(self):
         """
         Ensure that DAGs are marked inactive when the file is parsed but the
