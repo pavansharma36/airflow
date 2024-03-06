@@ -1143,7 +1143,12 @@ class DagFileProcessorManager(LoggingMixin):
                 and (now - last_finish_time).total_seconds() < self._file_process_interval
                 and not (is_mtime_mode and file_modified_time and (file_modified_time > last_finish_time))
             ):
-                file_paths_recently_processed.append(file_path)
+                if file_path in self._callback_to_execute:
+                    # Chances of this happening is very less but can happen if processor was already running
+                    # and start_new_process ignored file with callback.
+                    self.log.info("File %s has callbacks to execute, Adding to parsing queue.")
+                else:
+                    file_paths_recently_processed.append(file_path)
 
         # Sort file paths via last modified time
         if is_mtime_mode:
